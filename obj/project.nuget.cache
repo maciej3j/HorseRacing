@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "dgSpecHash": "aHTUx8na6ww=",
+  "success": true,
+  "projectFilePath": "/home/maciej/Work/projekt_z_ASPNET/HorseRacing/HorseRacing.csproj",
+  "expectedPackageFiles": [
+    "/home/maciej/.nuget/packages/microsoft.aspnetcore.app.ref/10.0.9/microsoft.aspnetcore.app.ref.10.0.9.nupkg.sha512"
+  ],
+  "logs": []
+}

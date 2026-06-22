@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Totalizator Sportowy - Wyścigi Koni</title>
+    <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@8/dist/browser/signalr.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            font-size: 2rem;
+            margin-bottom: 8px;
+            color: #ffd700;
+            text-shadow: 0 0 20px rgba(255, 215, 0, 0.3);
+        }
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 24px;
+            font-size: 0.9rem;
+        }
+        .race-info {
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 1.2rem;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+        .status-Waiting { background: #2d2d5e; color: #8888ff; }
+        .status-Running { background: #2d5e2d; color: #88ff88; }
+        .status-Finished { background: #5e2d2d; color: #ff8888; }
+        .race-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 20px;
+        }
+        .horse-row {
+            margin-bottom: 14px;
+            padding: 8px 12px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+        }
+        .horse-row:last-child { margin-bottom: 0; }
+        .horse-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        .horse-name {
+            font-weight: 600;
+            font-size: 1rem;
+        }
+        .horse-odds {
+            font-size: 0.85rem;
+            color: #ffd700;
+            background: rgba(255, 215, 0, 0.1);
+            padding: 2px 10px;
+            border-radius: 10px;
+        }
+        .track {
+            width: 100%;
+            height: 24px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            overflow: hidden;
+            position: relative;
+        }
+        .track-fill {
+            height: 100%;
+            border-radius: 12px;
+            transition: width 0.3s ease;
+            width: 0%;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 8px;
+            font-size: 0.7rem;
+            font-weight: bold;
+            color: #fff;
+            min-width: 30px;
+        }
+        .track-fill.horse-1 { background: linear-gradient(90deg, #e74c3c, #ff6b6b); }
+        .track-fill.horse-2 { background: linear-gradient(90deg, #f39c12, #f1c40f); }
+        .track-fill.horse-3 { background: linear-gradient(90deg, #2ecc71, #27ae60); }
+        .track-fill.horse-4 { background: linear-gradient(90deg, #3498db, #2980b9); }
+        .track-fill.horse-5 { background: linear-gradient(90deg, #9b59b6, #8e44ad); }
+        .horse-track-info {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            color: #888;
+            margin-top: 2px;
+        }
+        .winner-badge {
+            display: none;
+            background: #ffd700;
+            color: #000;
+            font-size: 0.7rem;
+            font-weight: bold;
+            padding: 2px 8px;
+            border-radius: 10px;
+            margin-left: 8px;
+        }
+        .winner-badge.show { display: inline-block; }
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        button {
+            padding: 10px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        button:hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
+        button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        .btn-start {
+            background: linear-gradient(135deg, #27ae60, #2ecc71);
+            color: #fff;
+        }
+        .btn-reset {
+            background: linear-gradient(135deg, #e67e22, #f39c12);
+            color: #fff;
+        }
+        .btn-bet {
+            background: linear-gradient(135deg, #2980b9, #3498db);
+            color: #fff;
+            width: 100%;
+        }
+        .betting-panel {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .betting-panel h3 {
+            margin-bottom: 12px;
+            color: #ffd700;
+        }
+        .form-group {
+            margin-bottom: 12px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 4px;
+            font-size: 0.9rem;
+            color: #aaa;
+        }
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            background: rgba(255,255,255,0.05);
+            color: #e0e0e0;
+            font-size: 1rem;
+        }
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+        .form-group select option { background: #1a1a2e; }
+        .message {
+            margin-top: 8px;
+            padding: 8px 12px;
+            border-radius: 8px;
+            display: none;
+        }
+        .message.success { display: block; background: rgba(46, 204, 113, 0.15); color: #2ecc71; border: 1px solid rgba(46, 204, 113, 0.3); }
+        .message.error { display: block; background: rgba(231, 76, 60, 0.15); color: #e74c3c; border: 1px solid rgba(231, 76, 60, 0.3); }
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-overlay.show { display: flex; }
+        .modal {
+            background: #1a1a2e;
+            border-radius: 16px;
+            padding: 32px;
+            max-width: 420px;
+            width: 90%;
+            text-align: center;
+            border: 1px solid rgba(255,215,0,0.2);
+        }
+        .modal h2 {
+            color: #ffd700;
+            margin-bottom: 16px;
+        }
+        .modal p {
+            margin-bottom: 8px;
+            color: #ccc;
+        }
+        .modal .winner-name {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #fff;
+            margin: 12px 0;
+        }
+        .modal .bet-result {
+            font-size: 1.2rem;
+            margin: 12px 0;
+            padding: 12px;
+            border-radius: 8px;
+        }
+        .modal .bet-result.won {
+            background: rgba(46, 204, 113, 0.2);
+            color: #2ecc71;
+        }
+        .modal .bet-result.lost {
+            background: rgba(231, 76, 60, 0.2);
+            color: #e74c3c;
+        }
+        .modal button {
+            margin-top: 16px;
+            background: linear-gradient(135deg, #2980b9, #3498db);
+            color: #fff;
+        }
+        .footer {
+            text-align: center;
+            color: #555;
+            font-size: 0.8rem;
+            margin-top: 32px;
+        }
+        .finish-line {
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background: #ff4444;
+            box-shadow: 0 0 8px rgba(255,68,68,0.5);
+        }
+        @media (max-width: 600px) {
+            body { padding: 12px; }
+            h1 { font-size: 1.5rem; }
+            .controls { flex-direction: column; align-items: stretch; }
+            .horse-header { flex-direction: column; align-items: flex-start; gap: 4px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏇 Totalizator Sportowy</h1>
+        <p class="subtitle">System obstawiania wyścigów konnych z symulacją w czasie rzeczywistym</p>
+
+        <div class="race-info">
+            <span class="status-badge status-Waiting" id="statusBadge">Oczekiwanie</span>
+        </div>
+
+        <div class="race-track" id="raceTrack">
+            <div class="horse-row" id="horseTemplate" style="display:none">
+                <div class="horse-header">
+                    <span class="horse-name"></span>
+                    <span class="horse-odds"></span>
+                    <span class="winner-badge">🏆 Zwycięzca</span>
+                </div>
+                <div class="track">
+                    <div class="track-fill" style="width:0%"></div>
+                    <div class="finish-line"></div>
+                </div>
+                <div class="horse-track-info">
+                    <span class="horse-position">0%</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button class="btn-start" id="btnStart" onclick="startRace()">Start Wyścigu</button>
+            <button class="btn-reset" id="btnReset" onclick="resetRace()">Nowy Wyścig</button>
+        </div>
+
+        <div class="betting-panel">
+            <h3>Postaw zakład</h3>
+            <div class="form-group">
+                <label for="userName">Twoje imię / nick</label>
+                <input type="text" id="userName" placeholder="np. Jan" value="Gracz" />
+            </div>
+            <div class="form-group">
+                <label for="horseSelect">Wybierz konia</label>
+                <select id="horseSelect"></select>
+            </div>
+            <div class="form-group">
+                <label for="betAmount">Kwota zakładu (PLN)</label>
+                <input type="number" id="betAmount" value="10" min="1" step="1" />
+            </div>
+            <button class="btn-bet" onclick="placeBet()">Postaw zakład</button>
+            <div id="betMessage" class="message"></div>
+        </div>
+
+        <div class="footer">
+            Projekt zaliczeniowy — Programowanie Aplikacji w ASP.NET — 2025/26
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="resultModal">
+        <div class="modal">
+            <h2>🏆 Wyścig zakończony!</h2>
+            <p>Zwycięzca:</p>
+            <div class="winner-name" id="modalWinnerName">---</div>
+            <div id="modalBetResult"></div>
+            <button onclick="closeModal()">OK</button>
+        </div>
+    </div>
+
+    <script>
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl("/racehub")
+            .withAutomaticReconnect()
+            .build();
+
+        let currentRace = null;
+        let myUserName = "Gracz";
+        let myBet = null;
+
+        connection.on("RaceUpdate", function (data) {
+            currentRace = data;
+            updateUI(data);
+        });
+
+        connection.on("RaceFinished", function (data) {
+            currentRace = data;
+            updateUI(data);
+            showResult(data);
+        });
+
+        async function startRace() {
+            try {
+                await connection.invoke("StartRace");
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        async function resetRace() {
+            try {
+                document.getElementById("resultModal").classList.remove("show");
+                await connection.invoke("ResetRace");
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        function updateUI(data) {
+            const badge = document.getElementById("statusBadge");
+            badge.textContent = data.status === "Waiting" ? "Oczekiwanie" :
+                                data.status === "Running" ? "Wyścig trwa!" :
+                                "Zakończony";
+            badge.className = "status-badge status-" + data.status;
+
+            const btnStart = document.getElementById("btnStart");
+            const btnReset = document.getElementById("btnReset");
+            btnStart.disabled = data.status !== "Waiting";
+            document.getElementById("horseSelect").disabled = data.status !== "Waiting";
+            document.getElementById("betAmount").disabled = data.status !== "Waiting";
+
+            const container = document.getElementById("raceTrack");
+            const template = document.getElementById("horseTemplate");
+
+            const existing = Array.from(container.querySelectorAll(".horse-row:not([style*='display:none'])"));
+            const horseCount = data.horses.length;
+
+            data.horses.forEach((horse, index) => {
+                let row;
+                if (index < existing.length) {
+                    row = existing[index];
+                } else {
+                    row = template.cloneNode(true);
+                    row.style.display = "";
+                    container.appendChild(row);
+                }
+
+                row.querySelector(".horse-name").textContent = horse.name;
+                row.querySelector(".horse-odds").textContent = "Kurs: " + horse.odds.toFixed(2);
+
+                const fill = row.querySelector(".track-fill");
+                fill.className = "track-fill horse-" + horse.id;
+                const pos = Math.round(horse.position);
+                fill.style.width = pos + "%";
+                fill.textContent = pos + "%";
+
+                row.querySelector(".horse-position").textContent = pos + "% / 100%";
+
+                const badge = row.querySelector(".winner-badge");
+                if (data.winnerId !== null && data.winnerId !== undefined && horse.id === data.winnerId) {
+                    badge.classList.add("show");
+                } else {
+                    badge.classList.remove("show");
+                }
+
+                row.dataset.horseId = horse.id;
+            });
+
+            for (let i = horseCount; i < existing.length; i++) {
+                existing[i].remove();
+            }
+        }
+
+        function showResult(data) {
+            const winner = data.horses.find(h => h.id === data.winnerId);
+            if (!winner) return;
+
+            document.getElementById("modalWinnerName").textContent = winner.name;
+
+            const betResultDiv = document.getElementById("modalBetResult");
+            let html = "";
+
+            if (myBet) {
+                if (myBet.horseId === data.winnerId) {
+                    const payout = myBet.amount * winner.odds;
+                    html = '<div class="bet-result won">🎉 Wygrałeś! Wypłata: ' + payout.toFixed(2) + ' PLN</div>';
+                } else {
+                    html = '<div class="bet-result lost">😞 Przegrałeś. Twój koń nie wygrał.</div>';
+                }
+            } else {
+                html = '<p>Nie obstawiłeś żadnego zakładu w tym wyścigu.</p>';
+            }
+
+            betResultDiv.innerHTML = html;
+            document.getElementById("resultModal").classList.add("show");
+        }
+
+        function closeModal() {
+            document.getElementById("resultModal").classList.remove("show");
+        }
+
+        async function placeBet() {
+            const userName = document.getElementById("userName").value.trim() || "Gracz";
+            myUserName = userName;
+            const horseId = parseInt(document.getElementById("horseSelect").value);
+            const amount = parseFloat(document.getElementById("betAmount").value);
+
+            if (!horseId || !amount || amount <= 0) {
+                showBetMessage("Wprowadź poprawne dane.", "error");
+                return;
+            }
+
+            try {
+                const response = await fetch("/api/bets", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ userName, horseId, amount })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    myBet = { horseId, amount };
+                    showBetMessage("Zakład przyjęty! Powodzenia!", "success");
+                } else {
+                    showBetMessage(result.message || "Błąd przyjmowania zakładu.", "error");
+                }
+            } catch (err) {
+                showBetMessage("Błąd połączenia z serwerem.", "error");
+            }
+        }
+
+        function showBetMessage(text, type) {
+            const el = document.getElementById("betMessage");
+            el.textContent = text;
+            el.className = "message " + type;
+            setTimeout(() => { el.className = "message"; }, 5000);
+        }
+
+        async function loadHorses() {
+            try {
+                const response = await fetch("/api/bets/race");
+                const data = await response.json();
+                const select = document.getElementById("horseSelect");
+                select.innerHTML = "";
+                data.horses.forEach(h => {
+                    const opt = document.createElement("option");
+                    opt.value = h.id;
+                    opt.textContent = h.name + " (kurs: " + h.odds.toFixed(2) + ")";
+                    select.appendChild(opt);
+                });
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        connection.start().then(function () {
+            console.log("SignalR połączony");
+            connection.invoke("JoinRace");
+            loadHorses();
+        }).catch(function (err) {
+            console.error(err);
+            // Fallback: load via AJAX
+            loadHorses();
+            setInterval(loadHorses, 1000);
+        });
+    </script>
+</body>
+</html>
