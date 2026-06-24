@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Mvc;
-using HorseRacing.Models;
 using HorseRacing.Services;
 
 namespace HorseRacing.Controllers;

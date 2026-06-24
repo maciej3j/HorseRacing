@@ -43,7 +43,6 @@ public class RaceManager
 
     public void ResetRace()
     {
-        // MECHANIZM: LOCK — blokada dostępu do współdzielonego stanu wyścigu
         lock (_raceLock)
         {
             _raceCts?.Cancel();
@@ -55,7 +54,6 @@ public class RaceManager
 
     public (bool Success, string Message) PlaceBet(Bet bet)
     {
-        // MECHANIZM: LOCK — sprawdzenie statusu wyścigu przed przyjęciem zakładu
         lock (_raceLock)
         {
             if (_race.Status != RaceStatus.Waiting)
@@ -71,7 +69,6 @@ public class RaceManager
 
     public void StartRace()
     {
-        // MECHANIZM: LOCK — zmiana statusu wyścigu w bezpieczny sposób
         lock (_raceLock)
         {
             if (_race.Status == RaceStatus.Running) return;
@@ -79,7 +76,6 @@ public class RaceManager
             _race.StartTime = DateTime.UtcNow;
             _race.WinnerHorseId = null;
 
-            // Reset pozycji i losowanie prędkości
             foreach (var horse in _race.Horses)
             {
                 horse.Position = 0;
@@ -91,7 +87,6 @@ public class RaceManager
         _raceCts = new CancellationTokenSource();
         var token = _raceCts.Token;
 
-        // MECHANIZM: PULA WĄTKÓW — każdy koń "biegnie" w osobnym Tasku z puli wątków
         var horseTasks = new List<Task>();
         foreach (var horse in _race.Horses)
         {
@@ -99,10 +94,8 @@ public class RaceManager
             horseTasks.Add(Task.Run(() => RunHorseAsync(h, token), token));
         }
 
-        // Task monitorujący wysyłanie aktualizacji do klientów przez SignalR
         _ = Task.Run(() => BroadcastRaceAsync(token), token);
 
-        // Task czekający na zakończenie wyścigu
         _ = Task.Run(async () =>
         {
             try
@@ -114,15 +107,12 @@ public class RaceManager
         }, token);
     }
 
-    // MECHANIZM: PULA WĄTKÓW — ta metoda wykonuje się w Task.Run,
-    // czyli na wątku pobranym z puli wątków .NET (ThreadPool)
     private async Task RunHorseAsync(Horse horse, CancellationToken token)
     {
         while (!token.IsCancellationRequested)
         {
             await Task.Delay(300, token);
 
-            // MECHANIZM: LOCK — bezpieczna aktualizacja pozycji konia
             lock (_raceLock)
             {
                 if (_race.Status != RaceStatus.Running) return;
@@ -158,20 +148,17 @@ public class RaceManager
 
     private async Task FinishRaceAsync()
     {
-        // MECHANIZM: LOCK — finalizacja wyścigu z blokadą stanu
         lock (_raceLock)
         {
             _race.Status = RaceStatus.Finished;
         }
 
-        // Wyślij końcową aktualizację
         await _hubContext.Clients.All.SendAsync("RaceUpdate", ToDto());
         await _hubContext.Clients.All.SendAsync("RaceFinished", ToDto());
     }
 
     public RaceStateDto ToDto()
     {
-        // MECHANIZM: LOCK — bezpieczne odczytanie stanu do przesłania przez WebSocket
         lock (_raceLock)
         {
             return new RaceStateDto
