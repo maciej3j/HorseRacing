@@ -7,6 +7,7 @@ namespace HorseRacing.Services;
 public class RaceManager
 {
     private readonly IHubContext<RaceHub> _hubContext;
+    private readonly IServiceProvider _serviceProvider;
     private Race _race = new();
     private readonly object _raceLock = new();
     private readonly Random _random = new();
@@ -18,9 +19,11 @@ public class RaceManager
         get { lock (_raceLock) return _race; }
     }
 
-    public RaceManager(IHubContext<RaceHub> hubContext)
+    public RaceManager(IHubContext<RaceHub> hubContext, IServiceProvider serviceProvider)
     {
+        ThreadPool.SetMinThreads(8, 4);
         _hubContext = hubContext;
+        _serviceProvider = serviceProvider;
         InitializeNewRace();
     }
 
@@ -69,6 +72,7 @@ public class RaceManager
 
     public void StartRace()
     {
+        Race currentRace;
         lock (_raceLock)
         {
             if (_race.Status == RaceStatus.Running) return;
@@ -80,77 +84,112 @@ public class RaceManager
             {
                 horse.Position = 0;
                 horse.IsWinner = false;
-                horse.Speed = _random.Next(1, 6);
+                horse.Speed = _random.Next(2, 7);
             }
+
+            currentRace = _race;
         }
 
         _raceCts = new CancellationTokenSource();
         var token = _raceCts.Token;
 
-        var horseTasks = new List<Task>();
-        foreach (var horse in _race.Horses)
+        int horseCount = currentRace.Horses.Count;
+        var startBarrier = new Barrier(horseCount);
+        var finishCountdown = new CountdownEvent(horseCount);
+
+        foreach (var horse in currentRace.Horses)
         {
             var h = horse;
-            horseTasks.Add(Task.Run(() => RunHorseAsync(h, token), token));
+            ThreadPool.QueueUserWorkItem(_ => RunHorse(h, currentRace, startBarrier, finishCountdown, token));
         }
 
-        _ = Task.Run(() => BroadcastRaceAsync(token), token);
+        ThreadPool.QueueUserWorkItem(async _ =>
+        {
+            while (!token.IsCancellationRequested)
+            {
+                try
+                {
+                    await Task.Delay(300, token);
+                    await _hubContext.Clients.All.SendAsync("RaceUpdate", ToDto(), token);
+                }
+                catch (OperationCanceledException) { }
+            }
+        });
 
-        _ = Task.Run(async () =>
+        ThreadPool.QueueUserWorkItem(async _ =>
         {
             try
             {
-                await Task.WhenAll(horseTasks);
-                await FinishRaceAsync();
+                while (!token.IsCancellationRequested)
+                {
+                    if (finishCountdown.Wait(100))
+                        break;
+                }
+
+                if (!token.IsCancellationRequested)
+                {
+                    await FinishRaceAsync();
+                }
             }
-            catch (OperationCanceledException) { }
-        }, token);
+            finally
+            {
+                startBarrier.Dispose();
+                finishCountdown.Dispose();
+            }
+        });
     }
 
-    private async Task RunHorseAsync(Horse horse, CancellationToken token)
+    private void RunHorse(Horse horse, Race race, Barrier startBarrier, CountdownEvent finishCountdown, CancellationToken token)
     {
-        while (!token.IsCancellationRequested)
+        try
         {
-            await Task.Delay(300, token);
+            startBarrier.SignalAndWait(token);
 
-            lock (_raceLock)
+            while (!token.IsCancellationRequested)
             {
-                if (_race.Status != RaceStatus.Running) return;
-                if (horse.IsWinner) return;
+                Thread.Sleep(300);
 
-                horse.Position += horse.Speed;
-
-                if (horse.Position >= 100)
+                lock (_raceLock)
                 {
-                    horse.Position = 100;
-                    horse.IsWinner = true;
+                    if (race.Status != RaceStatus.Running) return;
+                    if (horse.IsWinner) return;
 
-                    if (_race.WinnerHorseId == null)
-                        _race.WinnerHorseId = horse.Id;
+                    horse.Position += horse.Speed;
+
+                    if (horse.Position >= 100)
+                    {
+                        horse.Position = 100;
+                        horse.IsWinner = true;
+
+                        if (race.WinnerHorseId == null)
+                            race.WinnerHorseId = horse.Id;
+
+                        return;
+                    }
                 }
             }
         }
-    }
-
-    private async Task BroadcastRaceAsync(CancellationToken token)
-    {
-        while (!token.IsCancellationRequested)
+        catch (OperationCanceledException) { }
+        catch (BarrierPostPhaseException) { }
+        finally
         {
-            await Task.Delay(300, token);
-
-            try
-            {
-                await _hubContext.Clients.All.SendAsync("RaceUpdate", ToDto(), token);
-            }
-            catch (OperationCanceledException) { }
+            finishCountdown.Signal();
         }
     }
 
     private async Task FinishRaceAsync()
     {
+        int? winnerId;
         lock (_raceLock)
         {
             _race.Status = RaceStatus.Finished;
+            winnerId = _race.WinnerHorseId;
+        }
+
+        if (winnerId.HasValue)
+        {
+            var betService = _serviceProvider.GetRequiredService<BetService>();
+            betService.SettleBets(winnerId.Value);
         }
 
         await _hubContext.Clients.All.SendAsync("RaceUpdate", ToDto());

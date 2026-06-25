@@ -8,37 +8,47 @@ public class BetService
     private readonly List<Bet> _bets = new();
     private readonly object _betLock = new();
     private int _betIdCounter;
+    private readonly SemaphoreSlim _betSemaphore = new(10, 10);
 
     public BetService(RaceManager raceManager)
     {
         _raceManager = raceManager;
     }
 
-    public (bool Success, string Message, Bet? Bet) PlaceBet(string userName, int horseId, decimal amount)
+    public async Task<(bool Success, string Message, Bet? Bet)> PlaceBetAsync(string userName, int horseId, decimal amount)
     {
         if (amount <= 0)
             return (false, "Kwota musi być większa od 0.", null);
 
-        var race = _raceManager.CurrentRace;
-        var horse = race.Horses.FirstOrDefault(h => h.Id == horseId);
-        if (horse == null)
-            return (false, "Nie znaleziono konia.", null);
+        await _betSemaphore.WaitAsync();
 
-        var (success, message) = _raceManager.PlaceBet(new Bet { HorseId = horseId });
-        if (!success)
-            return (false, message, null);
-
-        lock (_betLock)
+        try
         {
-            var bet = new Bet
+            var race = _raceManager.CurrentRace;
+            var horse = race.Horses.FirstOrDefault(h => h.Id == horseId);
+            if (horse == null)
+                return (false, "Nie znaleziono konia.", null);
+
+            var (success, message) = _raceManager.PlaceBet(new Bet { HorseId = horseId });
+            if (!success)
+                return (false, message, null);
+
+            lock (_betLock)
             {
-                Id = Interlocked.Increment(ref _betIdCounter),
-                UserName = userName,
-                HorseId = horseId,
-                Amount = amount
-            };
-            _bets.Add(bet);
-            return (true, "Zakład przyjęty!", bet);
+                var bet = new Bet
+                {
+                    Id = Interlocked.Increment(ref _betIdCounter),
+                    UserName = userName,
+                    HorseId = horseId,
+                    Amount = amount
+                };
+                _bets.Add(bet);
+                return (true, "Zakład przyjęty!", bet);
+            }
+        }
+        finally
+        {
+            _betSemaphore.Release();
         }
     }
 

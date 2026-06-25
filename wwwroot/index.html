@@ -245,6 +245,68 @@
             background: linear-gradient(135deg, #2980b9, #3498db);
             color: #fff;
         }
+        .bets-history {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .bets-history h3 {
+            margin-bottom: 12px;
+            color: #ffd700;
+        }
+        .bets-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+        .bets-table th {
+            text-align: left;
+            padding: 8px 10px;
+            color: #888;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            font-weight: 600;
+        }
+        .bets-table td {
+            padding: 8px 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .bets-table tr:last-child td {
+            border-bottom: none;
+        }
+        .bets-table .bet-won {
+            color: #2ecc71;
+            font-weight: 600;
+        }
+        .bets-table .bet-lost {
+            color: #e74c3c;
+            font-weight: 600;
+        }
+        .bets-table .bet-pending {
+            color: #f39c12;
+            font-weight: 600;
+        }
+        .bets-empty {
+            color: #666;
+            text-align: center;
+            padding: 20px;
+            font-size: 0.9rem;
+        }
+        .bets-refresh {
+            display: block;
+            margin: 10px auto 0;
+            padding: 6px 16px;
+            background: rgba(255,255,255,0.08);
+            color: #aaa;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .bets-refresh:hover {
+            background: rgba(255,255,255,0.12);
+            color: #fff;
+        }
         .footer {
             text-align: center;
             color: #555;
@@ -271,7 +333,7 @@
 <body>
     <div class="container">
         <h1>🏇 Totalizator Sportowy</h1>
-        <p class="subtitle">System obstawiania wyścigów konnych z symulacją w czasie rzeczywistym</p>
+        <p class="subtitle">Obstawianie wyścigów konnych w czasie rzeczywistym!</p>
 
         <div class="race-info">
             <span class="status-badge status-Waiting" id="statusBadge">Oczekiwanie</span>
@@ -317,9 +379,12 @@
             <div id="betMessage" class="message"></div>
         </div>
 
-        <div class="footer">
-            Projekt zaliczeniowy — Programowanie Aplikacji w ASP.NET — 2025/26
+        <div class="bets-history">
+            <h3>Twoje zakłady</h3>
+            <div id="betsContent"><p class="bets-empty">Brak zakładów.</p></div>
+            <button class="bets-refresh" onclick="loadMyBets()">Odśwież</button>
         </div>
+
     </div>
 
     <div class="modal-overlay" id="resultModal">
@@ -351,6 +416,7 @@
             currentRace = data;
             updateUI(data);
             showResult(data);
+            loadMyBets();
         });
 
         async function startRace() {
@@ -364,7 +430,9 @@
         async function resetRace() {
             try {
                 document.getElementById("resultModal").classList.remove("show");
+                myBet = null;
                 await connection.invoke("ResetRace");
+                loadMyBets();
             } catch (err) {
                 console.error(err);
             }
@@ -476,6 +544,7 @@
                 if (response.ok) {
                     myBet = { horseId, amount };
                     showBetMessage("Zakład przyjęty! Powodzenia!", "success");
+                    loadMyBets();
                 } else {
                     showBetMessage(result.message || "Błąd przyjmowania zakładu.", "error");
                 }
@@ -508,10 +577,69 @@
             }
         }
 
+        async function loadMyBets() {
+            const userName = document.getElementById("userName").value.trim() || "Gracz";
+            try {
+                const [betsRes, raceRes] = await Promise.all([
+                    fetch("/api/bets/" + encodeURIComponent(userName)),
+                    fetch("/api/bets/race")
+                ]);
+                if (!betsRes.ok) return;
+                const bets = await betsRes.json();
+                const raceData = raceRes.ok ? await raceRes.json() : null;
+                const container = document.getElementById("betsContent");
+
+                const horseMap = {};
+                if (raceData && raceData.horses) {
+                    raceData.horses.forEach(h => { horseMap[h.id] = h.name; });
+                }
+
+                if (bets.length === 0) {
+                    container.innerHTML = '<p class="bets-empty">Brak zakładów.</p>';
+                    return;
+                }
+
+                let html = '<table class="bets-table">' +
+                    '<thead><tr><th>#</th><th>Koń</th><th>Kwota</th><th>Status</th><th>Wypłata</th></tr></thead><tbody>';
+
+                bets.toReversed().forEach(b => {
+                    let statusText, statusClass;
+                    if (!b.isSettled) {
+                        statusText = "Oczekuje";
+                        statusClass = "bet-pending";
+                    } else if (b.isWon) {
+                        statusText = "Wygrana";
+                        statusClass = "bet-won";
+                    } else {
+                        statusText = "Przegrana";
+                        statusClass = "bet-lost";
+                    }
+
+                    const horseName = horseMap[b.horseId] || "Koń #" + b.horseId;
+                    const payout = b.isSettled && b.isWon ? b.payout.toFixed(2) + " PLN" :
+                                   b.isSettled ? "-" : "?";
+
+                    html += '<tr>' +
+                        '<td>' + b.id + '</td>' +
+                        '<td>' + horseName + '</td>' +
+                        '<td>' + b.amount.toFixed(2) + ' PLN</td>' +
+                        '<td class="' + statusClass + '">' + statusText + '</td>' +
+                        '<td>' + payout + '</td>' +
+                        '</tr>';
+                });
+
+                html += '</tbody></table>';
+                container.innerHTML = html;
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
         connection.start().then(function () {
             console.log("SignalR połączony");
             connection.invoke("JoinRace");
             loadHorses();
+            loadMyBets();
         }).catch(function (err) {
             console.error(err);
             // Fallback: load via AJAX

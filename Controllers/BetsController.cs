@@ -24,12 +24,12 @@ public class BetsController : ControllerBase
     }
 
     [HttpPost]
-    public IActionResult PlaceBet([FromBody] PlaceBetRequest request)
+    public async Task<IActionResult> PlaceBet([FromBody] PlaceBetRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.UserName))
             return BadRequest(new { message = "Nazwa użytkownika jest wymagana." });
 
-        var (success, message, bet) = _betService.PlaceBet(request.UserName, request.HorseId, request.Amount);
+        var (success, message, bet) = await _betService.PlaceBetAsync(request.UserName, request.HorseId, request.Amount);
         if (!success)
             return BadRequest(new { message });
 
